@@ -1,0 +1,375 @@
+---
+title: "SEMANA 12"
+format: html
+editor: visual
+---
+
+### SEMANA 12
+
+### INTEGRANTES:
+
+-   Apaza Bedia Eva Lucia
+
+-   Cancho Villanueva Fiorella Anallely
+
+-   Inga Salinas Jean Pierre
+
+-   Huaraca Palomino Kriss Syntia
+
+-   Moreno VillaJuan Marjorie Rubi
+
+## Cargar los paquetes
+
+```{r}
+install.packages("performance")
+```
+
+```{r}
+library(tidyverse)
+library(here)
+library(rio)
+library(gtsummary)
+library(car)
+library(survival)
+library(performance)
+```
+
+## Análisis univariado y multivariado en una regresión logística
+
+### 1 El dataset para este ejercicio
+
+Para ilustrar el proceso de análisis multivariado en un modelo de regresión logística, se empleará el dataset cirrosis. Este conjunto de datos incluye información de 418 pacientes con diagnóstico de cirrosis hepática, seguidos a lo largo del tiempo. Las variables registradas comprenden el desenlace del paciente (Estado, indicando la condición final), el tiempo de seguimiento (en días), edad (en años), sexo (femenino o masculino), y hallazgos clínicos como la presencia de ascitis, hepatomegalia, aracnoides y edema. Asimismo, se incluyen variables de laboratorio relevantes como niveles séricos de bilirrubina, colesterol, albúmina, cobre, fosfatasa alcalina, SGOT, triglicéridos, plaquetas y tiempo de protrombina. Finalmente, el dataset incluye la clasificación de la etapa de la enfermedad (Etapa), útil para evaluar el grado de progresión hepática.
+
+```{r}
+cirrosis_data <- import(here("data", "cirrosis.csv"))
+```
+
+Un vistazo a los datos
+
+```{r}
+head(cirrosis_data)
+```
+
+### 2.2 El análisis univariado
+
+En esta sección se estimarán los Odds Ratios (OR) de cada variable de manera independiente, es decir, sin ajuste por otras covariables.
+
+Antes de realizar este análisis, es necesario definir las categorías de referencia para las variables categóricas mediante la función mutate() en combinación con relevel(). Este paso asegura que la interpretación de los OR se haga en relación con la categoría de referencia seleccionada. El resultado se guarda en un nuevo objeto llamado cirrosis_1
+
+```{r}
+cirrosis_1 <- cirrosis_data |> 
+  mutate(
+    Sexo = relevel(as.factor(Sexo), ref = "Mujer"),
+    Ascitis = relevel(as.factor(Ascitis), ref = "No"),
+    Hepatomegalia = relevel(as.factor(Hepatomegalia), ref = "No"),
+    Aracnoides = relevel(as.factor(Aracnoides), ref = "No"),
+    Edema = relevel(as.factor(Edema), ref = "Ausente"),
+    Estado = relevel(as.factor(Estado), ref = "Censurado")
+  ) |> 
+  na.omit()
+```
+
+Para obtener la tabla con los resultados del análisis univariado, se utiliza la función `tbl_uvregression()`, que permite generar tablas con las estimaciones de regresión logística para cada variable incluida. Entre sus argumentos se especifican el método de regresión, las variables a analizar, la familia de distribución (binomial para modelos logísticos), y opciones de presentación de los resultados como los intervalos de confianza, valores p y formato de los estimadores.
+
+```{r}
+cirrosis_1 <- cirrosis_1 |> 
+  mutate(
+    Estado_binario = ifelse(Estado == "Fallecido", 1, 0)
+  )
+```
+
+Como desenlace vamos a utilizar Estado, pero necesitamos. Para fines de este ejemplo, supongamos que vamos a binarizar Estado como:
+
+Fallecido: 1
+
+No fallecido (censurado o trasplante): 0
+
+Así podríamos definir la variable Estado_binario antes:
+
+```{r}
+tabla_reg_log_univ <- cirrosis_1 |> 
+  tbl_uvregression(
+    include = c(Edad, Bilirrubina, Colesterol, Albumina, Tiempo_Protrombina, Plaquetas, SGOT, Trigliceridos),
+    y = Estado_binario,
+    method = glm,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    hide_n = TRUE,
+    add_estimate_to_reference_rows = FALSE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Bilirrubina ~ "Bilirrubina (mg/dL)",
+      Colesterol ~ "Colesterol (mg/dL)",
+      Albumina ~ "Albúmina (g/dL)",
+      Tiempo_Protrombina ~ "Tiempo de Protrombina (seg)",
+      Plaquetas ~ "Plaquetas (10^3/uL)",
+      SGOT ~ "SGOT (U/L)",
+      Trigliceridos ~ "Triglicéridos (mg/dL)"
+    )
+  ) |> 
+  bold_labels() |> 
+  bold_p(t = 0.05) |> 
+  modify_header(estimate = "**OR no ajustado**", p.value = "**Valor p**")
+```
+
+En esta tabla, los resultados se expresan como odds ratios no ajustados (OR) con sus respectivos intervalos de confianza al 95% y valores p.
+
+```{r}
+tabla_reg_log_univ
+```
+
+**INTERPRETACIÓN**
+
+Se realizó un análisis univariado utilizando modelos de regresión logística binaria para evaluar la asociación de distintas variables clínicas y de laboratorio con el desenlace de mortalidad en pacientes con cirrosis.
+
+Los principales hallazgos fueron los siguientes:
+
+Se observó que, por cada año adicional de edad, el odds de mortalidad se mantiene prácticamente sin cambios (OR es 1.00; IC95%: es1.00–1.00), aunque con significancia estadística (p \< 0.001). Este hallazgo sugiere un posible efecto estadístico debido al gran tamaño muestral, pero clínicamente el efecto sería nulo o muy pequeño
+
+Los niveles más altos de bilirrubina se asociaron significativamente con un mayor riesgo de mortalidad (OR es 1.41; IC95%: 1.26–1.60; p \< 0.001). Este resultado es consistente con el rol pronóstico de la bilirrubina en la disfunción hepática
+
+El colesterol aunque estadísticamente significativo (p = 0.010), el odds ratio fue neutro (OR = 1.00), sugiriendo que su impacto clínico sería mínimo en este análisis univariado
+
+La albúmina mostró una fuerte asociación inversa con la mortalidad. Por cada unidad adicional de albúmina, el odds de fallecimiento disminuyó 78% (OR = 0.22; IC95%: 0.11–0.43; p \< 0.001), lo que refleja su valor como marcador de reserva hepática
+
+Un mayor tiempo de protrombina se asoció significativamente con incremento del riesgo de muerte (OR ess 2.72; IC95%: 1.98–3.87; p \< 0.001), confirmando la importancia del deterioro de la función de síntesis hepática como factor pronóstico
+
+Plaquetas no se alcanzó significancia estadística (OR = 1.00; IC95%: 0.99–1.00; p = 0.074), aunque se observa una tendencia hacia mayor riesgo con recuentos plaquetarios bajos
+
+Los niveles elevados de SGOT se asociaron significativamente con mayor mortalidad (OR es 1.01; IC95%: 1.01–1.01; p \< 0.001), sugiriendo daño hepatocelular activo
+
+Los niveles más altos de triglicéridos también mostraron asociación estadísticamente significativa (OR es1.01; IC95%: 1.00–1.01; p \< 0.001), aunque el efecto es clínicamente pequeño
+
+### El análisis multivariado
+
+Para el análisis de regresión logística multivariada, se aplicó una estrategia de selección automática de variables utilizando tres enfoques: eliminación hacia atrás (*backward elimination*), selección hacia adelante (*forward selection*) y selección paso a paso (*stepwise selection)*.
+
+**Paso 1. Ajuste del modelo inicial**
+
+Ajustamos un modelo de regresión logística binaria que incluya todas las variables candidatas
+
+```{r}
+var_modelo <- glm(
+  Estado_binario ~ Edad + Bilirrubina + Colesterol + Albumina + Tiempo_Protrombina +
+    Plaquetas + SGOT + Trigliceridos,
+  data = cirrosis_1,
+  family = binomial(link = "logit")
+)
+```
+
+**Paso 2a. Realizamos la selección de variables** usando la técnica Eliminación hacia atrás (Backward elimination).
+
+```{r}
+multi_backward <- var_modelo |>
+  step(direction = "backward", trace = FALSE)
+```
+
+**Paso 2b. Realizamos la selección de variables** usando la técnica Selección hacia adelante (Forward selection).
+
+```{r}
+multi_forward <- var_modelo |>
+  step(direction = "forward", trace = FALSE)
+```
+
+**Paso 3c. Realizamos la selección de variables** usando la técnica Selección paso a paso (Stepwise selection).
+
+```{r}
+multi_stepwise <- var_modelo |>
+  step(direction = "both", trace = FALSE)
+```
+
+Los resultados de la selección de las variables para el modelo se han guardado en los objetos: multi_backward, multi_forward, y multi_stepwise. El siguiente paso es comparar los valores de AIC y la multicolinealidad entre las variables seleccionadas por cada uno de los modelos.
+
+**Paso 3. Estimados el AIC para los modelos.**
+
+Podemos visualizar el AIC y cuáles variables han sido seleccionadas en cada modelo, usando la función summary.
+
+```{r}
+summary(multi_backward)
+```
+
+**INTERPRETACION**
+
+Edad: Aunque el OR por cada año adicional de edad es muy cercano a 1 muestra significancia estadística (p \< 0.001). Clínicamente, el impacto de la edad en este modelo sería mínimo por cada año, aunque podría ser relevante acumulativamente en rangos amplios de edad
+
+Cada incremento de 1 mg/dL en bilirrubina aumenta el odds de mortalidad en aproximadamente un 22% (OR=1.219; p=0.0018). Este hallazgo refuerza el papel de la bilirrubina como marcador clave de disfunción hepática avanzada
+
+El tiempo de protrombina mostró una fuerte asociación con la mortalidad. Por cada segundo adicional, el odds de muerte aumenta casi 79% (OR=1.793; p\<0.001). Esto refleja el deterioro de la capacidad de síntesis hepática como factor pronóstico crítico
+
+Los niveles elevados de SGOT se asociaron significativamente con un incremento en el riesgo de mortalidad (OR=1.008; p=0.023), indicando daño hepatocelular activo
+
+Los triglicéridos aunque mostró una tendencia positiva (OR=1.005), no alcanzó significancia estadística (p=0.069), por lo que su relevancia pronóstica debe interpretarse con cautela
+
+```{r}
+summary(multi_forward)
+```
+
+**INTERPRETACION**
+
+Edad: Cada año adicional de edad se asocia a un incremento leve pero estadísticamente significativo del odds de mortalidad (OR=1.00014; p=0.0011). Aunque el efecto por año es mínimo, puede ser clínicamente relevante en diferencias amplias de edad.
+
+Bilirrubina: Por cada 1 mg/dL adicional de bilirrubina, el riesgo de mortalidad aumenta un 22% (OR=1.219; p=0.0089). Este marcador sigue mostrando su relevancia pronóstica.
+
+Colesterol: Aunque incluido en el modelo, su efecto es prácticamente nulo (OR≈1) y no significativo (p=0.881), por lo cual su impacto clínico sería irrelevante.
+
+Albúmina: Aunque presenta una asociación inversa (OR=0.584), no alcanza significancia estadística (p=0.168). Es probable que el efecto protector observado en el univariado esté atenuado al ajustar por el resto de variables.
+
+Tiempo de Protrombina: Se mantiene como uno de los predictores más fuertes. Cada segundo adicional de protrombina incrementa el odds de mortalidad en un 79% (OR=1.793; p\<0.001).
+
+Plaquetas: No muestra asociación estadísticamente significativa (p=0.975).
+
+SGOT: Los niveles de SGOT continúan mostrando una asociación significativa (OR=1.006; p=0.035), indicando actividad hepatocelular dañada.
+
+Triglicéridos: Se observa una tendencia (OR=1.0056; p=0.058), pero no alcanza el umbral de significancia.
+
+```{r}
+summary(multi_stepwise)
+```
+
+**INTERPRETACION**
+
+Edad: Se confirma una asociación estadísticamente significativa (p \< 0.001), aunque clínicamente el efecto por año es pequeño (OR=1.00015). Sin embargo, puede acumular relevancia en diferencias amplias de edad
+
+Bilirrubina: Por cada incremento de 1 mg/dL, el riesgo de mortalidad aumenta en un 22% (OR=1.219; p=0.0018). Mantiene su rol como marcador de daño hepático avanzado
+
+Tiempo de Protrombina: Un incremento de un segundo se asocia a un aumento de casi 79% en el odds de fallecimiento (OR=1.793; p\<0.001). Permanece como uno de los predictores más sólidos
+
+SGOT: Muestra asociación significativa (OR=1.007; p=0.023), confirmando su papel como marcador de daño hepatocelular activo
+
+Triglicéridos: Aunque presenta una tendencia positiva (OR=1.005; p=0.068), no alcanza significancia estadística convencional, por lo que su relevancia es limitada
+
+### 2.5 Evaluación de colinealidad
+
+Finalmente, evaluamos la colinealidad usando la función `check_collinearity()` del paquete `performance`.
+
+```{r}
+performance::check_collinearity(multi_backward, ci = NULL)
+```
+
+**INTERPRETACION**
+
+Todos los valores de VIF se encuentran muy por debajo del umbral crítico comúnmente aceptado (VIF \> 5 o VIF \> 10 según distintas referencias), lo que indica que no existe evidencia de multicolinealidad preocupante entre las variables incluidas.
+
+Los valores de Tolerancia son todos superiores a 0.7, confirmando la ausencia de problemas de redundancia entre las variables predictoras.
+
+En conjunto, estos resultados indican que el modelo es estadísticamente estable, y las estimaciones de los Odds Ratios ajustados son fiables.
+
+```{r}
+performance::check_collinearity(multi_forward, ci = NULL)
+```
+
+**INTERPRETACION**
+
+Todos los VIF se encuentran por debajo de 2, lo que indica que no existe colinealidad problemática.
+
+Las tolerancias permanecen en valores aceptables (\> 0.6), aunque ligeramente más bajas en bilirrubina (0.65) y colesterol (0.67), lo cual indica cierta correlación entre estas variables
+
+```{r}
+performance::check_collinearity(multi_stepwise, ci = NULL)
+```
+
+**INTERPRETACION**
+
+Todos los valores de VIF son menores a 2, indicando que no existe colinealidad relevante entre las variables seleccionadas en este modelo.
+
+Las tolerancias son aceptables, todas superiores a 0.7, lo que sugiere buena independencia entre los predictores.
+
+Estos resultados son prácticamente idénticos a los obtenidos en el modelo backward, lo que es lógico ya que el conjunto de variables seleccionadas por ambos métodos es el mismo.
+
+### **2.6 Conclusión**
+
+Los modelos generados mediante eliminación hacia atrás (backward elimination) y selección paso a paso (stepwise selection) mostraron valores de VIF bajos y cercanos a 1, indicando una baja colinealidad entre las variables incluidas. En ambos procedimientos se seleccionó exactamente el mismo conjunto final de variables: Edad, Bilirrubina, Tiempo de Protrombina, SGOT y Triglicéridos.
+
+En cambio, el modelo obtenido mediante la técnica de selección hacia adelante (forward selection) incluyó algunas variables adicionales (como Colesterol, Albúmina y Plaquetas) que mostraron ligeros incrementos en los valores de VIF, particularmente para Bilirrubina (VIF=1.54) y Colesterol (VIF=1.50). No obstante, estos valores aún se mantienen dentro de rangos aceptables y no indican problemas críticos de multicolinealidad. La inclusión de estas variables adicionales probablemente refleja ciertas correlaciones fisiológicas, pero su relevancia estadística fue limitada en el modelo ajustado.
+
+Por lo tanto, el análisis de colinealidad apoya la robustez y estabilidad de los modelos seleccionados por backward y stepwise.
+
+### 2.7 Modelo final
+
+Con base en los resultados de ajuste (AIC) y la evaluación de colinealidad (VIF), se concluye que el modelo óptimo es el obtenido mediante las técnicas de eliminación hacia atrás (*backward elimination*) o selección paso a paso (*stepwise selection*), dado que ambos produjeron exactamente el mismo conjunto de variables independientes.
+
+## 3 Reporte del análisis univariado y multivariado
+
+Como en las sesiones anteriores, reportaremos los resultados del modelo final de regresión logística.
+
+Tabla para los resultados de la regresión univariado (no ajustado)
+
+```{r}
+tabla_univ <- cirrosis_1 |> 
+  tbl_uvregression(
+    include = c(Edad, Bilirrubina, Colesterol, Albumina, Tiempo_Protrombina, Plaquetas, SGOT, Trigliceridos),
+    y = Estado_binario,
+    method = glm,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    hide_n = TRUE,
+    add_estimate_to_reference_rows = FALSE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Bilirrubina ~ "Bilirrubina (mg/dL)",
+      Colesterol ~ "Colesterol (mg/dL)",
+      Albumina ~ "Albúmina (g/dL)",
+      Tiempo_Protrombina ~ "Tiempo de Protrombina (seg)",
+      Plaquetas ~ "Plaquetas (10³/uL)",
+      SGOT ~ "SGOT (U/L)",
+      Trigliceridos ~ "Triglicéridos (mg/dL)"
+    )
+  ) |> 
+  bold_labels() |> 
+  bold_p(t = 0.05) |> 
+  modify_header(estimate = "**OR no ajustado**", p.value = "**Valor p**")
+```
+
+Tabla para los resultados de la regresión multivariable (ajustado)
+
+```{r}
+tabla_multi <- glm(
+  Estado_binario ~ Edad + Bilirrubina + Tiempo_Protrombina + SGOT + Trigliceridos,
+  family = binomial(link = "logit"),
+  data = cirrosis_1
+) |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Bilirrubina ~ "Bilirrubina (mg/dL)",
+      Tiempo_Protrombina ~ "Tiempo de Protrombina (seg)",
+      SGOT ~ "SGOT (U/L)",
+      Trigliceridos ~ "Triglicéridos (mg/dL)"
+    )
+  ) |> 
+  bold_labels() |> 
+  bold_p(t = 0.05) |> 
+  modify_header(estimate = "**OR ajustado**", p.value = "**Valor p**")
+```
+
+La tabla final la construimos usando la función `tbl_merge()`. De modo que la tabla del análisis univariado o no ajustado y multivariado o ajustado, se muestren lado a lado.
+
+```{r}
+tabla_final <- 
+  tbl_merge(
+    list(tabla_univ, tabla_multi),
+    tab_spanner = c("**Univariado**", "**Multivariado**")
+  )
+```
+
+```{r}
+tabla_final
+```
+
+**INTERPRETACION**
+
+En el análisis univariado, múltiples variables mostraron asociación significativa con la mortalidad en pacientes con cirrosis, destacándose bilirrubina, albúmina, tiempo de protrombina, SGOT y triglicéridos. La bilirrubina presentó un OR de 1.41 (p\<0.001), mientras que el tiempo de protrombina mostró un OR de 2.72 (p\<0.001), evidenciando su impacto pronóstico. La albúmina presentó un efecto protector significativo (OR=0.22; p\<0.001).
+
+Al realizar el análisis multivariado ajustado, las variables que permanecieron como predictores independientes significativos fueron bilirrubina (OR=1.25; p=0.002), tiempo de protrombina (OR=2.21; p\<0.001), SGOT (OR=1.01; p=0.023) y edad (p\<0.001). Triglicéridos mostró una tendencia no significativa (p=0.069). Las demás variables perdieron significancia tras el ajuste.
+
+No se observaron problemas de colinealidad en el modelo final (VIF \< 1.5), garantizando la estabilidad de las estimaciones. Los resultados reflejan el rol clave de la función hepática de síntesis (tiempo de protrombina), excreción (bilirrubina) y daño hepatocelular (SGOT) en el pronóstico de la cirrosis.

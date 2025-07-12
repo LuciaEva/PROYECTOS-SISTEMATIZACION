@@ -1,0 +1,390 @@
+---
+title: "SEM11_GRUPO5"
+format: html
+editor: visual
+---
+
+UNIVERSIDAD PRIVADA SAN JUAN BAUTISTA
+
+DOCTOR: SEGUNDO VICENTE CASTRO LOPEZ
+
+CURSO:SISTEMATIZACIÓN Y MÉTODOS ESTADÍSTICOS
+
+GRUPO 5
+
+INTEGRANTES:
+
+-   Apaza Bedia Eva Lucia
+-   Cancho Villanueva Fiorella Anallely
+-   Inga Salinas Jean Pierre
+-   Huaraca Palomino Kriss Syntia
+-   Moreno VillaJuan Marjorie Rubi
+
+### Instalar los paquetes que usaremos para la practica
+
+Solo instalar si es necesario
+
+```{r}
+install.packages("broom")
+install.packages("survival")
+install.packages("survminer")
+install.packages("ggsurvfit")
+```
+
+### Cargamos los paquetes
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(survival)
+library(survminer)
+library(gtsummary)
+library(broom)
+library(here)
+library(rio)
+library(ggsurvfit)
+```
+
+Cargamos nuestra base de datos la cual seria cirrosis.csv
+
+```{r}
+cirrosis_data<- import(here("DATA", "cirrosis.csv"))
+```
+
+Se realizó la preparación de la variable de desenlace (evento), transformando la variable original `Estado` a un formato binario requerido para el análisis de supervivencia:
+
+```{r}
+cirrosis_data$Estado_recodificado <- ifelse(cirrosis_data$Estado == "Fallecido", 1, 0)
+```
+
+# 1 Analizando datos de tiempo a evento
+
+El análisis de supervivencia, tambien conocido como análisis de tiempo a evento, es empleado para estudios donde el o los investigadores realizan un seguimiento (a los pacientes) hasta que ocurra un evento. Ejemplo de tales estudios caen en la categoría de estudios de cohorte prospectivo o retrospectivo.
+
+El evento, en estudios de epidemiología, puede corresponder a muerte despues de diagnóstico, recurrencia de enfermedad, éxito de tratamiento, entre otros.
+
+El análisis de supervivencia incluye datos de tiempo (dado que se hace seguimiento). Los datos de tiempo puede venir en cualquier forma: horas, días, meses, o años. Por ejemplo, meses hasta la recaída, años desde el diagnóstico hasta el fallecimiento, semanas antes de la recurrencia de la enfermedad, días desde el inicio del tratamiento al exito del tratamiento, años hasta el inicio de abuso de sustancias.
+
+En esta sesión abordaremos 2 de las principales técnicas para realizar análisis de supervivencia:
+
+-   Análisis de supervivencia usando el método de Kaplan-Meier
+-   Regresión de riesgos proporcionales (PH) de Cox
+
+## 1.1 Censura
+
+Una característica clave en datos de supervivencia es la censura para un participante (una observación). La censura de un participante puede ocurrir por al menos 3 razones: 1) Perdida de seguimiento 2) Retiro del estudio 3) El evento no ocurre al término del periodo de estudio. Todos estos son ejemplos de "censura a la derecha", dado que ocurren luego del incio del estudio. Hay otros tipos de censura, menos frecuentes, pero estos no los consideraremos para esta sesión.
+
+# 2 Estimaciones de supervivencia usando el método de Kaplan-Meier
+
+## 2.1 El dataset para este ejercicio
+
+El dataset cancer_pulmon contiene datos de 418 individuos. Para el primer ejecicio haremos uso de las siguientes 3 variables:
+
+-   tiempo_d: tiempo de supervivencia observado en días.
+-   estado: indica si el parcipante tuvo el evento (falleció) o si fue censurado (0=censura, 1=evento).
+-   sexo: sexo del parcipante (femenino o masculino).
+
+Vistazo al dataset
+
+```{r}
+cirrosis_data |> 
+  select(Dias_Seguimiento, Estado_recodificado, Edema) |> 
+  summary()
+```
+
+## 2.2 El desenlace en el análisis de supervivencia
+
+Kaplan-Meier estima la probabilidad de supervivencia para distintos puntos de tiempo. En R, usamos la función `Surv()` para crear la variable "respuesta" o desenlace. Este tipo de desenlace incluye a su vez estado del participante (con el evento o sin el evento) y tiempo.
+
+```{r}
+Surv(cirrosis_data$Dias_Seguimiento, cirrosis_data$Estado_recodificado)
+```
+
+*INTERPRETACION:*
+
+Ahora lo interpreto como en el ejemplo de la segunda imagen:
+
+El paciente 1 sobrevivió 400 días y tuvo el evento falleció
+
+El paciente 2 sobrevivió 4500 días y fue censurado 4000+ significa que al final del seguimiento no falleció
+
+El paciente 3 sobrevivió 1012 días y tuvo el evento falleció
+
+El paciente 4 sobrevivió 1925 días y fue censurado
+
+La variable "respuesta" la incluimos en la función survfit para estimar la probabilidad de supervivencia (una curva) usando el método de Kaplan-Meier. Aquí estimados la curva de superviencia global sin considerar ningun predictor. Es por ello que añadimos "\~ 1" a la formula. Esa parte será reemplazada más adelante por algun predictor o covariable de interés.
+
+```{r}
+km <- survfit(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data)
+```
+
+```{r}
+str(km)
+```
+
+Se ajustó el modelo Kaplan-Meier (survfit) sobre un total de 418 pacientes (n = 418), utilizando los días de seguimiento (Dias_Seguimiento) como variable de tiempo y la variable binaria Estado_recodificado como indicador del evento (fallecimiento).
+
+El componente \$time muestra los distintos tiempos en los que ocurrieron eventos o censuras durante el seguimiento, comenzando en 41 días y extendiéndose hasta cerca de los 4795 días. Estos son los puntos donde la curva de supervivencia presenta cambios (saltos).
+
+El componente \$n.risk indica la cantidad de pacientes en riesgo en cada uno de esos tiempos. Por ejemplo, al inicio del seguimiento hay 418 pacientes, y este número va disminuyendo conforme ocurren eventos o censuras.
+
+El componente \$n.event muestra la cantidad de eventos (fallecimientos) ocurridos en cada tiempo específico. Un valor de 1 indica que hubo un fallecimiento en ese instante; un 0 indica que no ocurrió ningún evento en ese punto.
+
+El componente \$n.censor refleja las censuras en cada tiempo, es decir, los pacientes que fueron retirados del seguimiento sin haber presentado el evento por ejemplo, por pérdida de seguimiento o fin del estudio
+
+El vector \$surv presenta las estimaciones acumuladas de la probabilidad de supervivencia en cada uno de los tiempos registrados. Por ejemplo, al inicio la supervivencia es 1 (100%), pero rápidamente va decreciendo: 0.999, 0.993, 0.988, etc., a medida que ocurren fallecimientos.
+
+El componente \$std.err muestra el error estándar asociado a cada estimación de supervivencia, lo cual permite evaluar la precisión de las estimaciones.
+
+El vector \$lower y \$upper proporciona los límites inferior y superior del intervalo de confianza al 95% para la supervivencia en cada tiempo.
+
+## 2.3 Gráficos de Kaplan-Meier
+
+La información contenida en el objeto creado con las estimaciones puede ser mejor visualizada en los gráficos de Kaplan-Meier.
+
+```{r}
+survfit2(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) |>
+  ggsurvfit() +
+  labs(
+    x = "Días de seguimiento",
+    y = "Probabilidad de supervivencia global"
+  ) +
+  add_censor_mark()
+```
+
+La curva muestra la probabilidad acumulada de supervivencia global de los pacientes con cirrosis a lo largo del tiempo. Al inicio del seguimiento, la probabilidad de supervivencia es cercana a 1 (100%), pero va disminuyendo progresivamente conforme avanza el tiempo de seguimiento y ocurren fallecimientos (eventos).
+
+Se observa que hacia los 2000 días la supervivencia ya ha disminuido por debajo del 70%, y continúa descendiendo hasta valores cercanos al 40% al final del periodo de seguimiento (alrededor de los 4500 días). Las pequeñas marcas verticales (`+`) sobre la curva indican observaciones censuradas — es decir, pacientes que no fallecieron durante el seguimiento, pero cuya información quedó incompleta por terminar el estudio o pérdida de seguimiento.
+
+```{r}
+survfit2(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) |>
+  ggsurvfit() +
+  labs(
+    x = "Días de seguimiento",
+    y = "Probabilidad de supervivencia global"
+  ) +
+  add_censor_mark() +
+  add_confidence_interval() +
+  add_risktable()
+```
+
+En la gráfica de Kaplan-Meier generada a partir de los datos de pacientes con cirrosis, se muestra la probabilidad de supervivencia global a lo largo del tiempo (en días de seguimiento). La curva es escalonada, ya que representa una función de supervivencia estimada por intervalos de tiempo; cada caída vertical corresponde a la ocurrencia de un evento (fallecimiento), reduciendo así la probabilidad acumulada de supervivencia.
+
+Las líneas horizontales reflejan los periodos entre eventos, mientras que las caídas abruptas indican la magnitud de la disminución en la probabilidad de supervivencia al producirse un fallecimiento. Las marcas verticales cortas (`+`), añadidas mediante `add_censor_mark()`, identifican a los pacientes censurados, es decir, aquellos que no experimentaron el evento durante el seguimiento o fueron retirados antes de completar el período de observación.
+
+El área sombreada alrededor de la curva corresponde al intervalo de confianza del 95%, generado mediante `add_confidence_interval()`. Este intervalo proporciona una medida de la precisión de las estimaciones de supervivencia: es más estrecho al inicio del seguimiento y se vuelve más amplio a medida que pasa el tiempo, reflejando el aumento de la incertidumbre a medida que disminuye el número de pacientes en seguimiento.
+
+Finalmente, la tabla de riesgo ubicada debajo de la curva (generada por `add_risktable()`) muestra el número de pacientes que permanecen en riesgo en diferentes momentos del seguimiento. Esta información facilita la interpretación de la estabilidad de la estimación de la curva a lo largo del tiempo, mostrando cómo el tamaño de la muestra disminuye progresivamente conforme avanza el seguimiento.
+
+## 2.4 Estimación de la supervivencia a x años.
+
+Al analizar datos de supervivencia es común que nos preguntemos, por ejemplo, ¿Cuál es la probabilidad de supervivencia después de 1 año de seguimiento? Esto lo calculamos a partir de usar la función survfit(), añadiendo el arguemento times.
+
+```{r}
+summary(survfit(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data), times = 365.25)
+```
+
+La probabilidad estimada de supervivencia al primer año de seguimiento 365 días es del 92.8%. Esto indica que aproximadamente el 93% de los pacientes con cirrosis seguían vivos al completar un año desde el inicio del seguimiento
+
+El intervalo de confianza al 95% para esta estimación está comprendido entre 90.4% y 95.3% lo que indica una estimación relativamente precisa en este punto temprano del seguimiento
+
+```{r}
+survfit2(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) |>
+  ggsurvfit() +
+  labs(
+    x = "Días de seguimiento",
+    y = "Probabilidad de supervivencia global"
+  ) +
+  add_confidence_interval() +
+  add_risktable() +
+  add_quantile(x_value = 365.25, linewidth = 0.7)
+```
+
+La curva de Kaplan-Meier muestra la probabilidad acumulada de supervivencia de los pacientes con cirrosis a lo largo del tiempo. Al inicio del seguimiento (día 0), todos los pacientes están vivos (probabilidad de supervivencia = 1). Conforme avanza el tiempo, la curva desciende de forma escalonada a medida que ocurren fallecimientos (eventos).
+
+Se ha añadido una línea vertical de referencia en los 365 días (1 año) mediante add_quantile(), que indica el punto temporal específico donde previamente calculamos que la probabilidad de supervivencia es aproximadamente 92.8%. Esto significa que alrededor del 93% de los pacientes seguían vivos al cumplirse el primer año de seguimiento
+
+### 2.5 Estimación mediana del tiempo de supervivencia
+
+Otro dato importante a estimar es la mediana de supervivencia. Típicamente, los datos de supervivencia no tendrán una distribución normal. Asi que, la mediana es preferida sobre la media aritmética.
+
+```{r}
+survfit(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data)
+```
+
+Se estimó la mediana del tiempo de supervivencia para los pacientes con cirrosis. El análisis incluyó los 418 pacientes disponibles, de los cuales 161 presentaron el evento (fallecimiento).
+
+La mediana estimada de supervivencia es de 3395 días. Esto significa que el 50% de los pacientes sobrevivieron al menos hasta los 3395 días aproximadamente 9 años).
+
+```{r}
+survfit2(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) |>
+  ggsurvfit() +
+  labs(
+    x = "Días de seguimiento",
+    y = "Probabilidad de supervivencia global"
+  ) +
+  add_confidence_interval() +
+  add_risktable() +
+  add_quantile(y_value = 0.5, linewidth = 0.7)
+```
+
+El grafico representa la probabilidad de supervivencia global de los pacientes con cirrosis a lo largo del tiempo.Las zonas grises alrededor de la curva representan los intervalos de confianza al 95%, mostrando la incertidumbre de la estimación a lo largo del seguimiento.
+
+Se ha añadido una línea horizontal en el nivel de 50% de supervivencia mediante la cual intersecta la curva en aproximadamente 3395 días, indicando que la mediana de supervivencia es de 3395 días alrededor de 9 añosEs decir la mitad de los pacientes sobreviven al menos hasta ese tiempo, mientras que la otra mitad fallece antes de alcanzarlo.
+
+## ¿Cómo reportar?
+
+Usando el paquete gtsummary podemos generar una tabla con datos de la supervivencia al año.
+
+```{r}
+theme_gtsummary_language(language = "es")
+```
+
+```{r}
+survfit(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) %>%
+  tbl_survfit(
+    times = 365.25,
+    label_header = "**Supervivencia a 1 año (IC 95%)**"
+  )
+```
+
+La probabilidad estimada de supervivencia global al primer año de seguimiento en esta cohorte de pacientes con cirrosis es del 93%. Es decir, aproximadamente el 93% de los pacientes seguían vivos al completar el primer año desde el inicio del estudio.
+
+```{r}
+survfit(Surv(Dias_Seguimiento, Estado_recodificado) ~ 1, data = cirrosis_data) |>
+  tbl_survfit(
+    probs = 0.5,
+    label_header = "**Mediana de supervivencia (IC 95%)**"
+  )
+```
+
+La mediana de supervivencia estimada para los pacientes con cirrosis es de 3395 días lo que equivale aproximadamente a 9. años. Esto significa que el 50% de los pacientes sobrevivieron al menos hasta ese tiempo, mientras que el otro 50% falleció antes de alcanzarlo.
+
+El intervalo de confianza al 95% para esta mediana de supervivencia está comprendido entre 3090 días y 3853 días, lo que indica una estimación relativamente precisa. A mayor número de pacientes en riesgo durante ese periodo, más estrecho es el intervalo de confianza.
+
+## 1.1 Comparando tiempos de supervivencia entre dos grupos
+
+En el conjunto de datos `cancer_pulmon` se incluyen tanto hombres como mujeres. Un análisis de interés consiste en evaluar si los tiempos de supervivencia difieren significativamente entre ambos grupos. Para ello, se utiliza la función `survdiff()`, que permite aplicar la prueba de log-rank y estimar si existen diferencias en las curvas de supervivencia.
+
+```{r}
+survdiff(Surv(Dias_Seguimiento, Estado_recodificado) ~ Edema, data = cirrosis_data)
+```
+
+Se compararon los tiempos de supervivencia entre los tres grupos de pacientes según el grado de edema: Ausente, Leve y Severo.
+
+En el grupo Edema Ausente 354 pacientes se observaron 116 eventos fallecimientos mientras que el número esperado según el modelo fue de 145.47.
+
+En el grupo Edema Leve 44 pacientes, se observaron 26 eventos, siendo el número esperado 13.05.
+
+En el grupo Edema Severo 20 pacientes ocurrieron 19 eventos, con un número esperado de 2.47.
+
+```{r}
+survfit2(Surv(Dias_Seguimiento, Estado_recodificado) ~ Edema, data = cirrosis_data) |>
+  ggsurvfit() +
+  labs(
+    x = "Días de seguimiento",
+    y = "Supervivencia global según Edema"
+  ) +
+  add_confidence_interval() +
+  add_risktable() +
+  add_pvalue(caption = "Log-rank {p.value}:")
+```
+
+Se observa que los pacientes sin edema (ausente, curva roja) presentan la mejor supervivencia a lo largo del tiempo, con una alta probabilidad de supervivencia incluso después de varios años de seguimiento. Los pacientes con edema leve (leve, curva verde) presentan una supervivencia intermedia, mientras que los pacientes con edema severo (severo, curva azul) presentan una supervivencia significativamente menor, con una marcada disminución de la probabilidad de supervivencia en los primeros meses de seguimiento.
+
+# 3 El modelo de regresión de Cox
+
+La prueba de log-rank no ofrece una medida de efecto y solo permite evaluar una única variable independiente a la vez. Sin embargo, en investigación suele ser necesario cuantificar el tamaño del efecto de una o varias variables, e incluso realizar un análisis multivariable, aspecto que abordaremos en la siguiente sesión. Para este propósito, el modelo de regresión de Cox es una herramienta adecuada para analizar datos con desenlaces de supervivencia.
+
+En R, este modelo se puede ajustar utilizando la función `coxph()` del paquete **survival**.
+
+## 3.1 El dataset para este ejercicio
+
+El dataset cancer_pulmon contiene datos de 418 individuos. Para el primer ejecicio haremos uso de las siguientes 3 variables:
+
+-   tiempo_d: tiempo de supervivencia observado en días.
+
+-   estado: indica si el parcipante tuvo el evento (falleció) o si fue censurado (0=censura, 1=evento).
+
+-   sexo: sexo del parcipante (femenino o masculino).
+
+    ```{r}
+    coxph(Surv(Dias_Seguimiento, Estado_recodificado) ~ Edema, data = cirrosis_data)
+    ```
+
+El análisis de Cox muestra que los pacientes con edema leve tienen un riesgo de muerte 2.5 veces mayor, y los pacientes con edema severo tienen un riesgo 10 veces mayor comparado con los pacientes sin edema. Ambos resultados son estadísticamente significativos. El edema es un fuerte predictor de peor supervivencia en pacientes con cirrosis.
+
+## 3.2 Interpretación y reporte
+
+Entre los resultados, el valor p indica que existe una asociación estadísticamente significativa entre la covariable grado de edema y el fallecimiento. Los coeficientes y sus intervalos de confianza al 95%, ambos en escala exponenciada, son las medidas de interés, ya que representan las razones de riesgo (hazard ratio, HR), las cuales indican cuántas veces mayor es el riesgo de fallecimiento en comparación al grupo de referencia (pacientes sin edema). Estas tablas de resultados pueden obtenerse con la función tbl_regression() del paquete gtsummary, utilizando la opción exponentiate = TRUE para mostrar directamente los HR en lugar de los coeficientes en escala logarítmica.
+
+```{r}
+coxph(Surv(Dias_Seguimiento, Estado_recodificado) ~ Edema, data = cirrosis_data) %>%
+  tbl_regression(exp = TRUE)
+```
+
+En esta tabla, el HR representa la razón instantánea de riesgos de fallecimiento entre los distintos grupos de edema. Se interpreta como la tasa instantánea de ocurrencia del evento (muerte) en aquellos pacientes que aún están en riesgo en cada momento del seguimiento.
+
+Un HR mayor a 1 indica una mayor tasa de ocurrencia del evento en comparación con el grupo de referencia (en este caso, los pacientes sin edema).
+
+Para los pacientes con edema leve, el HR = 2.54 indica que tienen un riesgo instantáneo de fallecimiento 2.5 veces mayor en comparación con aquellos sin edema.
+
+Para los pacientes con edema severo, el HR = 10.3 indica un riesgo de muerte 10 veces mayor respecto al grupo sin edema.
+
+Ambos resultados son estadísticamente significativos (p \< 0.001), lo que confirma que la presencia y severidad del edema se asocian fuertemente con un mayor riesgo de muerte en pacientes con cirrosis en nuestro dataset.
+
+### 3.3 Reporte para multiple variables
+
+Es frecuente que en un estudio que incluya datos de supervivencia sea de interés evaluar multiples covariables. En R, usando la función `tbl_uvregression()` podemos generar modelos univariables simples para todas las covariables. A cambio, obtenemos la HR cruda para todas las covariables de interés.
+
+```{r}
+tabla_cox <- cirrosis_data |>
+  tbl_uvregression(
+    include = c(Edad, Sexo, Medicamento, Ascitis, Edema, Bilirrubina, Albumina),
+    y = Surv(Dias_Seguimiento, Estado_recodificado),
+    method = coxph,
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    hide_n = TRUE,
+    add_estimate_to_reference_rows = FALSE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Sexo ~ "Sexo",
+      Medicamento ~ "Tratamiento",
+      Ascitis ~ "Ascitis",
+      Edema ~ "Edema",
+      Bilirrubina ~ "Bilirrubina (mg/dL)",
+      Albumina ~ "Albúmina (g/dL)"
+    )
+  ) |>
+  bold_p(t = 0.05) |>
+  modify_header(estimate = "**HR no ajustado**", p.value = "**p-valor**")
+```
+
+Imprimimos la tabla
+
+```{r}
+tabla_cox
+```
+
+Se evaluó el efecto de diversas variables clínicas sobre el riesgo de fallecimiento en pacientes con cirrosis:
+
+Edad: Aunque el HR es 1.00 (debido a escala pequeña por año), el efecto es significativo (p \< 0.001), lo que indica que la edad sigue siendo un predictor importante de riesgo.
+
+Sexo: Las mujeres presentan un HR de 0.68 en comparación a los hombres, sugiriendo menor riesgo, pero la diferencia no es estadísticamente significativa (p = 0.086).
+
+Tratamiento (Medicamento): No se observaron diferencias significativas entre los pacientes tratados con placebo y D-penicilamina
+
+Ascitis: La presencia de ascitis aumenta el riesgo de muerte casi 8 veces mostrando una fuerte asociación con peor pronóstico.
+
+Edema leve eleva el riesgo 2.54 veces
+
+Edema severo eleva el riesgo 10.3 veces
+
+Existe un gradiente claro: a mayor gravedad del edema, mayor riesgo.
+
+Bilirrubina: Por cada unidad de aumento de bilirrubina, el riesgo aumenta un 15%
+
+Albúmina: Niveles más altos de albúmina son protectores. Por cada incremento de 1 g/dL, el riesgo de fallecimiento disminuye un 79%
